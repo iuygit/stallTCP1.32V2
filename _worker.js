@@ -923,33 +923,47 @@ export default {
 // =============================================================================
 
 function genNodes(host, uuid, proxyIP, customIPs, psName) {
-    const commonUrlPart = `?encryption=none&security=tls&sni=${host}&fp=random&type=ws&host=${host}`;
-    const separator = psName ? ` ${psName}` : '';
-    const result = [];
+  const commonUrlPart = `?encryption=none&security=tls&sni=${host}&fp=random&type=ws&host=${host}`;
+  const separator = psName ? ` ${psName}` : '';
+  const result = [];
 
-    // 🟢 修复：特征码混淆
-    if (!customIPs || customIPs.length === 0) {
-        const path = proxyIP ? `/proxyip=${proxyIP}` : "/";
-        const nodeName = `${psName || 'Worker'} - Default`;
-        const vLink = `${PT_TYPE}://${uuid}@${proxyIP || host}:443${commonUrlPart}&path=${encodeURIComponent(path)}#${encodeURIComponent(nodeName)}`;
-        return vLink;
-    }
+  // 🟢 默认情况 (无优选IP)
+  if (!customIPs || customIPs.length === 0) {
+      const path = proxyIP ? `/proxyip=${proxyIP}` : "/";
+      const nodeName = `${psName || 'Worker'} - Default`;
+      const vLink = `${PT_TYPE}://${uuid}@${proxyIP || host}:443${commonUrlPart}&path=${encodeURIComponent(path)}#${encodeURIComponent(nodeName)}`;
+      return vLink;
+  }
 
-    for (const ipInfo of customIPs) {
-        const [ip, port, uniqueName] = ipInfo.split(':');
-        const finalPort = port || '443';
-        const path = `/proxyip=${ip}:${finalPort}`;
-        
-        let nodeName = uniqueName || ip;
-        if (psName) nodeName = `${nodeName}${separator}`;
-        if (nodeName.includes('#')) nodeName = nodeName.split('#')[1];
+  // 🟢 修复循环逻辑
+  for (const ipInfo of customIPs) {
+      // 1. 解析 IP#Name 或 IP:Port#Name 格式
+      let [addressPart, ...nameParts] = ipInfo.split('#');
+      let uniqueName = nameParts.join('#').trim();
+      addressPart = addressPart.trim();
 
-        // 🟢 修复：特征码混淆
-        const vLink = `${PT_TYPE}://${uuid}@${host}:443${commonUrlPart}&path=${encodeURIComponent(path)}#${encodeURIComponent(nodeName)}`;
-        result.push(vLink);
-    }
+      // 2. 分离 IP 和 端口
+      let ip = addressPart;
+      let port = '443';
+      if (addressPart.includes(':') && !addressPart.includes(']:')) {
+          const parts = addressPart.split(':');
+          ip = parts[0];
+          port = parts[1];
+      }
 
-    return result.join('\n');
+      // 3. 修复 Path：使用指定的 proxyip (若有) 或根路径
+      const path = proxyIP ? `/proxyip=${proxyIP}` : "/";
+
+      // 4. 构建节点名称
+      let nodeName = uniqueName || ip;
+      if (psName) nodeName = `${nodeName}${separator}`;
+      
+      // 5. 修复 Address：使用解析出的 ip 和 port，而非 host
+      const vLink = `${PT_TYPE}://${uuid}@${ip}:${port}${commonUrlPart}&path=${encodeURIComponent(path)}#${encodeURIComponent(nodeName)}`;
+      result.push(vLink);
+  }
+
+  return result.join('\n');
 }
 
 async function getCustomIPs(env) {
